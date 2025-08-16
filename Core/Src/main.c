@@ -98,7 +98,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
-  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 1800);
+  __HAL_TIM_SET_COMPARE(&htim1, TIM_CHANNEL_1, 2300);
   HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_1);
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_1);
   HAL_TIM_IC_Start_IT(&htim2, TIM_CHANNEL_2);
@@ -111,9 +111,11 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+
+	  	}
   }
   /* USER CODE END 3 */
-}
+
 
 /**
   * @brief System Clock Configuration
@@ -242,8 +244,6 @@ static void MX_TIM2_Init(void)
   /* USER CODE END TIM2_Init 0 */
 
   TIM_ClockConfigTypeDef sClockSourceConfig = {0};
-  TIM_SlaveConfigTypeDef sSlaveConfig = {0};
-  TIM_IC_InitTypeDef sConfigIC = {0};
   TIM_MasterConfigTypeDef sMasterConfig = {0};
 
   /* USER CODE BEGIN TIM2_Init 1 */
@@ -261,33 +261,6 @@ static void MX_TIM2_Init(void)
   }
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sSlaveConfig.SlaveMode = TIM_SLAVEMODE_RESET;
-  sSlaveConfig.InputTrigger = TIM_TS_TI1FP1;
-  sSlaveConfig.TriggerPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sSlaveConfig.TriggerPrescaler = TIM_ICPSC_DIV1;
-  sSlaveConfig.TriggerFilter = 0;
-  if (HAL_TIM_SlaveConfigSynchro(&htim2, &sSlaveConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_FALLING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_INDIRECTTI;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_2) != HAL_OK)
   {
     Error_Handler();
   }
@@ -343,6 +316,7 @@ static void MX_USART1_UART_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
   /* USER CODE BEGIN MX_GPIO_Init_1 */
 
   /* USER CODE END MX_GPIO_Init_1 */
@@ -351,33 +325,88 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
+  /*Configure GPIO pin : PA1 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI1_IRQn);
+
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
 /* USER CODE BEGIN 4 */
+//uint32_t period = 0;
+//uint32_t pulse = 0;
+//float duty_cycle;
+//float freq;
+//
+//void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+//{
+//    if(htim->Instance == TIM2)
+//    {
+//        period = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
+//        pulse = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2);
+//
+//        duty_cycle = ((float)pulse / (float)period) * 100.0f;
+//        freq = 1.0f / ((float)period * 0.000001f);
+//
+//        char buffer[50];
+//        int size = sprintf(buffer, "Theduty cycle is : %.2f%%, and freqis : %.2f Hz\r\n", duty_cycle, freq);
+//        HAL_UART_Transmit(&huart1, (uint8_t*)buffer, size, HAL_MAX_DELAY);
+//
+//    }
+//}
+uint32_t rising1 = 0;
+uint32_t falling = 0;
+uint32_t rising2 = 0;
+uint32_t on_time = 0;
 uint32_t period = 0;
-uint32_t pulse = 0;
-float duty_cycle;
-float freq;
+uint32_t first_rising_detected = 0;
+uint8_t duty_ready = 0;
+float duty_cycle=0;
 
-void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
-{
-    if(htim->Instance == TIM2)
-    {
-        period = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_1);
-        pulse = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2);
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if(GPIO_Pin == GPIO_PIN_1){
+		uint32_t now = __HAL_TIM_GET_COUNTER(&htim2);
+		if((HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1)) == GPIO_PIN_SET){
+			if(!first_rising_detected) {
+				rising1 = now;
+				first_rising_detected = 1;
+			}
+			else {
+				rising2 = now;
+				period = (rising2 >= rising1) ? (rising2 - rising1) : (65536 + rising2 - rising1);
+				rising1 = rising2;
+			}
+		}
+		else{
+			falling = now;
+			on_time = (falling >= rising1) ? (falling - rising1) : (65536 + falling - rising1);
+		}
+		if(period > 0 && on_time > 0){
+			duty_cycle = ((float)on_time / (float)period) * 100.0f;
+			duty_ready = 1;
+		}
 
-        duty_cycle = ((float)pulse / (float)period) * 100.0f;
-        freq = 1.0f / ((float)period * 0.000001f);
+		if(duty_ready){
+			char buffer[50];
+			int size = sprintf(buffer, " duty cycle is : %.2f%%\r\n", duty_cycle);
+			HAL_UART_Transmit(&huart1, (uint8_t*)buffer, size, HAL_MAX_DELAY);
+			duty_ready = 0;
+		}
 
-        char buffer[50];
-        int size = sprintf(buffer, "Theduty cycle is : %.2f%%, and freqis : %.2f Hz\r\n", duty_cycle, freq);
-        HAL_UART_Transmit(&huart1, (uint8_t*)buffer, size, HAL_MAX_DELAY);
 
-    }
+
 }
+}
+// ملاحظة
+// duty ready flag is important if PWM value changes
 
 /* USER CODE END 4 */
 
